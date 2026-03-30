@@ -7,20 +7,28 @@ export type MatchResult = {
   estimatedSavings: number;
 };
 
-const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+// 🌍 Haversine formula
+const calculateDistance = (
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number => {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
+
   const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
       Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
+      Math.sin(dLng / 2) ** 2;
+
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 };
 
+// 📏 Distance from point to route line
 const pointToLineDistance = (
   px: number,
   py: number,
@@ -36,6 +44,7 @@ const pointToLineDistance = (
 
   const dot = A * C + B * D;
   const lenSq = C * C + D * D;
+
   let param = -1;
   if (lenSq !== 0) param = dot / lenSq;
 
@@ -55,18 +64,27 @@ const pointToLineDistance = (
   return calculateDistance(px, py, xx, yy);
 };
 
-export const findMatches = (currentRide: Ride, availableRides: Ride[]): MatchResult[] => {
-  const PICKUP_THRESHOLD_KM = 2;
-  const DESTINATION_THRESHOLD_KM = 2;
-  const ROUTE_OVERLAP_THRESHOLD = 0.3;
+// 🚗 MAIN MATCH FUNCTION
+export const findMatches = (
+  currentRide: Ride,
+  availableRides: Ride[]
+): MatchResult[] => {
+
+  // 🔥 UPDATED THRESHOLDS (more realistic)
+  const PICKUP_THRESHOLD_KM = 5;
+  const DESTINATION_THRESHOLD_KM = 5;
+  const ROUTE_OVERLAP_THRESHOLD = 0.1;
 
   const matches: MatchResult[] = [];
 
   for (const ride of availableRides) {
+
+    // ❌ Skip same ride or same user
     if (ride.id === currentRide.id || ride.user_id === currentRide.user_id) {
       continue;
     }
 
+    // 📍 Distances
     const pickupDistance = calculateDistance(
       currentRide.pickup_lat,
       currentRide.pickup_lng,
@@ -81,10 +99,15 @@ export const findMatches = (currentRide: Ride, availableRides: Ride[]): MatchRes
       ride.destination_lng
     );
 
-    if (pickupDistance > PICKUP_THRESHOLD_KM || destinationDistance > DESTINATION_THRESHOLD_KM) {
+    // 🧠 FIX: allow partial match instead of strict rejection
+    if (
+      pickupDistance > PICKUP_THRESHOLD_KM &&
+      destinationDistance > DESTINATION_THRESHOLD_KM
+    ) {
       continue;
     }
 
+    // 🚗 Route distances
     const currentRideDistance = calculateDistance(
       currentRide.pickup_lat,
       currentRide.pickup_lng,
@@ -99,6 +122,7 @@ export const findMatches = (currentRide: Ride, availableRides: Ride[]): MatchRes
       ride.destination_lng
     );
 
+    // 📏 Distance from route
     const pickupToOtherPickup = pointToLineDistance(
       ride.pickup_lat,
       ride.pickup_lng,
@@ -117,23 +141,44 @@ export const findMatches = (currentRide: Ride, availableRides: Ride[]): MatchRes
       currentRide.destination_lng
     );
 
-    const routeOverlap =
-      1 - (pickupToOtherPickup + destinationToOtherDestination) / (currentRideDistance + otherRideDistance);
+    // 🔥 FIX: safe route overlap
+    const routeOverlapRaw =
+      1 -
+      (pickupToOtherPickup + destinationToOtherDestination) /
+        (currentRideDistance + otherRideDistance);
+
+    const routeOverlap = Math.max(0, routeOverlapRaw);
 
     if (routeOverlap < ROUTE_OVERLAP_THRESHOLD) {
       continue;
     }
 
-    const sharedDistance = Math.min(currentRideDistance, otherRideDistance) * routeOverlap;
+    // 📊 Shared distance
+    const sharedDistance =
+      Math.min(currentRideDistance, otherRideDistance) * routeOverlap;
 
-    const pickupProximityScore = Math.max(0, 1 - pickupDistance / PICKUP_THRESHOLD_KM);
-    const destinationProximityScore = Math.max(0, 1 - destinationDistance / DESTINATION_THRESHOLD_KM);
-    const routeOverlapScore = routeOverlap;
+    // 🎯 Scoring
+    const pickupScore = Math.max(0, 1 - pickupDistance / PICKUP_THRESHOLD_KM);
+    const destinationScore = Math.max(
+      0,
+      1 - destinationDistance / DESTINATION_THRESHOLD_KM
+    );
+    const routeScore = routeOverlap;
 
     const matchScore =
-      pickupProximityScore * 0.3 + destinationProximityScore * 0.3 + routeOverlapScore * 0.4;
+      pickupScore * 0.3 +
+      destinationScore * 0.3 +
+      routeScore * 0.4;
 
+    // 💰 Savings
     const estimatedSavings = Math.round((sharedDistance * 15) / 2);
+
+    // 🧪 DEBUG (optional)
+    console.log("Checking Ride:", ride.id);
+    console.log("Pickup Distance:", pickupDistance);
+    console.log("Destination Distance:", destinationDistance);
+    console.log("Route Overlap:", routeOverlap);
+    console.log("Match Score:", matchScore);
 
     matches.push({
       ride,
